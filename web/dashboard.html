@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Monitor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #21262d;
+  }
+  header h1 { font-size: 1.2rem; color: #58a6ff; letter-spacing: 2px; }
+  #timestamp { font-size: 0.8rem; color: #484f58; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .card h2 {
+    font-size: 0.7rem;
+    color: #484f58;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .metric-row { margin-bottom: 14px; }
+  .metric-label {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+  }
+  .metric-name { color: #8b949e; }
+  .metric-value { color: #e6edf3; font-weight: bold; }
+  .bar-track {
+    height: 6px;
+    background: #21262d;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.6s ease, background-color 0.6s ease;
+  }
+  .bar-fill.low    { background: #3fb950; }
+  .bar-fill.mid    { background: #d29922; }
+  .bar-fill.high   { background: #f85149; }
+  .metric-sub { font-size: 0.72rem; color: #484f58; margin-top: 4px; }
+
+  .net-row {
+    display: flex;
+    gap: 12px;
+  }
+  .net-item {
+    flex: 1;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+  }
+  .net-item .arrow { font-size: 1.2rem; margin-bottom: 4px; }
+  .net-item .net-label { font-size: 0.7rem; color: #484f58; margin-bottom: 4px; }
+  .net-item .net-val { font-size: 1rem; color: #e6edf3; font-weight: bold; }
+  .arrow.up   { color: #3fb950; }
+  .arrow.down { color: #58a6ff; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    table-layout: fixed;
+  }
+  thead th {
+    text-align: left;
+    color: #484f58;
+    font-size: 0.7rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 0 8px 10px 8px;
+    border-bottom: 1px solid #21262d;
+  }
+  thead th:nth-child(1) { width: 80px; }
+  thead th:nth-child(2) { width: auto; }
+  thead th:nth-child(3) { width: 90px; text-align: right; }
+  thead th:nth-child(4) { width: 90px; text-align: right; }
+  tbody tr { transition: background 0.15s; }
+  tbody tr:hover { background: #1c2128; }
+  tbody td {
+    padding: 8px;
+    border-bottom: 1px solid #161b22;
+    color: #c9d1d9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  tbody td:first-child { color: #484f58; }
+  tbody td:nth-child(3),
+  tbody td:nth-child(4) { text-align: right; }
+  .pid { color: #484f58 !important; }
+  .proc-cpu { color: #d29922; }
+  .proc-mem { color: #58a6ff; }
+  .alert-banner {
+    background: #3d1f1f;
+    border: 1px solid #f85149;
+    border-radius: 6px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    font-size: 0.82rem;
+    color: #f85149;
+    display: none;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #3fb950;
+    margin-right: 8px;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.3; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span>SYSTEM MONITOR</h1>
+  <span id="timestamp">--</span>
+</header>
+
+<div id="alerts"></div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Resources</h2>
+    <div class="metric-row">
+      <div class="metric-label">
+        <span class="metric-name">CPU</span>
+        <span class="metric-value" id="cpu-val">--%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="cpu-bar" style="width:0%"></div></div>
+    </div>
+    <div class="metric-row">
+      <div class="metric-label">
+        <span class="metric-name">Memory</span>
+        <span class="metric-value" id="mem-val">--%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="mem-bar" style="width:0%"></div></div>
+      <div class="metric-sub" id="mem-sub"></div>
+    </div>
+    <div class="metric-row">
+      <div class="metric-label">
+        <span class="metric-name">Disk  /</span>
+        <span class="metric-value" id="disk-val">--%</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill" id="disk-bar" style="width:0%"></div></div>
+      <div class="metric-sub" id="disk-sub"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Network  <span style="font-size:0.65rem;color:#21262d">(cumulative)</span></h2>
+    <div class="net-row">
+      <div class="net-item">
+        <div class="arrow up">↑</div>
+        <div class="net-label">Sent</div>
+        <div class="net-val" id="net-sent">-- MB</div>
+      </div>
+      <div class="net-item">
+        <div class="arrow down">↓</div>
+        <div class="net-label">Recv</div>
+        <div class="net-val" id="net-recv">-- MB</div>
+      </div>
+      <div class="net-item">
+        <div class="arrow up" style="color:#8b949e">⇅</div>
+        <div class="net-label">Pkts Sent</div>
+        <div class="net-val" id="net-psent">--</div>
+      </div>
+      <div class="net-item">
+        <div class="arrow down" style="color:#8b949e">⇅</div>
+        <div class="net-label">Pkts Recv</div>
+        <div class="net-val" id="net-precv">--</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Top Processes</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>PID</th>
+        <th>Name</th>
+        <th>CPU %</th>
+        <th>MEM %</th>
+      </tr>
+    </thead>
+    <tbody id="proc-tbody"></tbody>
+  </table>
+</div>
+
+<script>
+function colorClass(pct) {
+  if (pct >= 80) return 'high';
+  if (pct >= 50) return 'mid';
+  return 'low';
+}
+function fmt(n, digits) { return n.toFixed(digits ?? 1); }
+function fmtMB(bytes) {
+  if (bytes >= 1073741824) return fmt(bytes/1073741824) + ' GB';
+  return Math.round(bytes/1048576) + ' MB';
+}
+
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch('/metrics');
+    data = await res.json();
+  } catch(e) { return; }
+
+  document.getElementById('timestamp').textContent =
+    new Date(data.timestamp).toLocaleString();
+
+  // CPU
+  const cpu = data.cpu_percent;
+  document.getElementById('cpu-val').textContent = fmt(cpu) + '%';
+  const cpuBar = document.getElementById('cpu-bar');
+  cpuBar.style.width = cpu + '%';
+  cpuBar.className = 'bar-fill ' + colorClass(cpu);
+
+  // Memory
+  const mem = data.memory.used_percent;
+  document.getElementById('mem-val').textContent = fmt(mem) + '%';
+  const memBar = document.getElementById('mem-bar');
+  memBar.style.width = mem + '%';
+  memBar.className = 'bar-fill ' + colorClass(mem);
+  document.getElementById('mem-sub').textContent =
+    fmtMB(data.memory.used) + ' / ' + fmtMB(data.memory.total);
+
+  // Disk
+  const disk = data.disk.used_percent;
+  document.getElementById('disk-val').textContent = fmt(disk) + '%';
+  const diskBar = document.getElementById('disk-bar');
+  diskBar.style.width = disk + '%';
+  diskBar.className = 'bar-fill ' + colorClass(disk);
+  document.getElementById('disk-sub').textContent =
+    fmtMB(data.disk.free) + ' free / ' + fmtMB(data.disk.total) + ' total';
+
+  // Network
+  document.getElementById('net-sent').textContent  = fmtMB(data.network.bytes_sent);
+  document.getElementById('net-recv').textContent  = fmtMB(data.network.bytes_recv);
+  document.getElementById('net-psent').textContent = data.network.packets_sent.toLocaleString();
+  document.getElementById('net-precv').textContent = data.network.packets_recv.toLocaleString();
+
+  // Alerts
+  const alerts = [];
+  if (cpu  > 80)  alerts.push('CPU usage high: ' + fmt(cpu) + '%');
+  if (mem  > 90)  alerts.push('Memory usage high: ' + fmt(mem) + '%');
+  if (disk > 95)  alerts.push('Disk usage critical: ' + fmt(disk) + '%');
+  const banner = document.getElementById('alerts');
+  if (alerts.length) {
+    banner.style.display = 'block';
+    banner.innerHTML = '⚠ ' + alerts.join('  &nbsp;|&nbsp;  ');
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Processes
+  const tbody = document.getElementById('proc-tbody');
+  tbody.innerHTML = (data.processes || []).map(p => `
+    <tr>
+      <td class="pid">${p.pid}</td>
+      <td>${p.name}</td>
+      <td class="proc-cpu">${fmt(p.cpu_percent, 2)}%</td>
+      <td class="proc-mem">${fmt(p.memory_percent, 2)}%</td>
+    </tr>`).join('');
+}
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

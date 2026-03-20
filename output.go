@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+//go:embed web/dashboard.html
+var dashboardHTML []byte
 
 // bar 生成一个文本进度条，percent 为 0~100 的百分比，width 为总宽度（字符数）
 // 示例输出：[################            ]
@@ -17,6 +21,15 @@ func bar(percent float64, width int) string {
 		filled = width
 	}
 	return "[" + fmt.Sprintf("%-*s", width, fmt.Sprintf("%s", repeat('#', filled))) + "]"
+}
+
+// truncate 将字符串截断到 n 个字符，超出部分替换为 "…"
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n-1]) + "…"
 }
 
 // repeat 返回由 n 个字符 ch 组成的字符串
@@ -58,14 +71,14 @@ func outputToConsole(metrics Metrics) {
 	fmt.Println()
 
 	// 进程列表表头
-	fmt.Printf("  %-6s  %-20s  %8s  %8s\n", "PID", "NAME", "CPU%", "MEM%")
-	fmt.Println("  " + repeat('-', 48))
+	fmt.Printf("  %-6s  %-32s  %8s  %8s\n", "PID", "NAME", "CPU%", "MEM%")
+	fmt.Println("  " + repeat('-', 60))
 	for i, p := range metrics.Processes {
 		if i >= 10 {
 			break
 		}
-		fmt.Printf("  %-6d  %-20s  %7.2f%%  %7.2f%%\n",
-			p.PID, p.Name, p.CPUPercent, p.MemoryPercent)
+		fmt.Printf("  %-6d  %-32s  %7.2f%%  %7.2f%%\n",
+			p.PID, truncate(p.Name, 32), p.CPUPercent, p.MemoryPercent)
 	}
 }
 
@@ -89,10 +102,12 @@ func outputToFile(metrics Metrics, filePath string) error {
 }
 
 // startWebServer 启动 Gin HTTP 服务器，通过 GET /metrics 以 JSON 格式暴露最新指标。
+// GET / 提供实时仪表盘页面（来自 web/dashboard.html，编译时通过 //go:embed 打包）。
 // metricsChan 由主循环写入；此函数在独立 goroutine 中运行，阻塞直到服务器退出。
 func startWebServer(port string, metricsChan <-chan Metrics) {
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
+	r := gin.New()
+	r.Use(gin.Recovery())
 
 	var latestMetrics Metrics
 
@@ -103,7 +118,12 @@ func startWebServer(port string, metricsChan <-chan Metrics) {
 		}
 	}()
 
-	// GET /metrics 返回最近一次采集的完整指标 JSON
+	// GET / 返回实时仪表盘 HTML 页面
+	r.GET("/", func(c *gin.Context) {
+		c.Data(200, "text/html; charset=utf-8", dashboardHTML)
+	})
+
+	// GET /metrics 返回最近一次采集的完整指标 JSON（供 API 调用或调试）
 	r.GET("/metrics", func(c *gin.Context) {
 		c.JSON(200, latestMetrics)
 	})
