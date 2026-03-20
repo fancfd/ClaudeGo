@@ -17,7 +17,7 @@ At least one output flag is required.
 
 | Flag | Description |
 |------|-------------|
-| `--console` | Prints formatted metrics every second (top 5 processes) |
+| `--console` | Real-time top-like display, refreshed every second (top 10 processes) |
 | `--file <path>` | Appends one JSON object per line to the specified file |
 | `--web` | Serves the latest metrics as JSON at `GET /metrics` |
 | `--port <port>` | Web server port (default: `8080`) |
@@ -25,16 +25,21 @@ At least one output flag is required.
 ### Console example
 
 ```
-Timestamp: 2026-03-20 10:00:00
-CPU: 12.34%
-Memory: 45.67% used (7340 MB / 16384 MB)
-Disk: 60.12% used (150 GB free / 512 GB total)
-Network: 1024 MB sent, 2048 MB recv
-Top Processes:
-  firefox (PID 1234): CPU 5.20%, Mem 3.10%
+System Monitor — 2026-03-20 10:00:00
+
+CPU:    [################                        ]  42.0%
+Memory: [####################                    ]  51.3%  (8388 MB / 16384 MB)
+Disk:   [########################                ]  60.1%  (150 GB free / 512 GB total)
+
+Network: ↑ 1024 MB sent   ↓ 2048 MB recv
+
+  PID     NAME                  CPU%      MEM%
+  ------------------------------------------------
+  1234    firefox               5.20%     3.10%
   ...
----
 ```
+
+The display clears and redraws each second, similar to `top`.
 
 ## Alerts
 

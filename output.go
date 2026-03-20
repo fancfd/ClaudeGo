@@ -9,29 +9,56 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func bar(percent float64, width int) string {
+	filled := int(percent / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	return "[" + fmt.Sprintf("%-*s", width, fmt.Sprintf("%s", repeat('#', filled))) + "]"
+}
+
+func repeat(ch rune, n int) string {
+	s := make([]rune, n)
+	for i := range s {
+		s[i] = ch
+	}
+	return string(s)
+}
+
 func outputToConsole(metrics Metrics) {
-	fmt.Printf("Timestamp: %s\n", metrics.Timestamp.Format("2006-01-02 15:04:05"))
-	fmt.Printf("CPU: %.2f%%\n", metrics.CPU)
-	fmt.Printf("Memory: %.2f%% used (%d MB / %d MB)\n",
+	// Clear screen and move cursor to top-left
+	fmt.Print("\033[2J\033[H")
+
+	fmt.Printf("System Monitor — %s\n", metrics.Timestamp.Format("2006-01-02 15:04:05"))
+	fmt.Println()
+
+	fmt.Printf("CPU:    %s %5.1f%%\n", bar(metrics.CPU, 40), metrics.CPU)
+	fmt.Printf("Memory: %s %5.1f%%  (%d MB / %d MB)\n",
+		bar(metrics.Memory.UsedPercent, 40),
 		metrics.Memory.UsedPercent,
 		metrics.Memory.Used/1024/1024,
 		metrics.Memory.Total/1024/1024)
-	fmt.Printf("Disk: %.2f%% used (%d GB free / %d GB total)\n",
+	fmt.Printf("Disk:   %s %5.1f%%  (%d GB free / %d GB total)\n",
+		bar(metrics.Disk.UsedPercent, 40),
 		metrics.Disk.UsedPercent,
 		metrics.Disk.Free/1024/1024/1024,
 		metrics.Disk.Total/1024/1024/1024)
-	fmt.Printf("Network: %d MB sent, %d MB recv\n",
+	fmt.Println()
+
+	fmt.Printf("Network: ↑ %d MB sent   ↓ %d MB recv\n",
 		metrics.Network.BytesSent/1024/1024,
 		metrics.Network.BytesRecv/1024/1024)
-	fmt.Printf("Top Processes:\n")
+	fmt.Println()
+
+	fmt.Printf("  %-6s  %-20s  %8s  %8s\n", "PID", "NAME", "CPU%", "MEM%")
+	fmt.Println("  " + repeat('-', 48))
 	for i, p := range metrics.Processes {
-		if i >= 5 { // Limit to top 5 for console
+		if i >= 10 {
 			break
 		}
-		fmt.Printf("  %s (PID %d): CPU %.2f%%, Mem %.2f%%\n",
-			p.Name, p.PID, p.CPUPercent, p.MemoryPercent)
+		fmt.Printf("  %-6d  %-20s  %7.2f%%  %7.2f%%\n",
+			p.PID, p.Name, p.CPUPercent, p.MemoryPercent)
 	}
-	fmt.Println("---")
 }
 
 func outputToFile(metrics Metrics, filePath string) error {
