@@ -3,7 +3,10 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // MemoryMetrics 保存内存使用情况的快照
@@ -67,11 +70,38 @@ func main() {
 		go startWebServer(*portFlag, metricsChan)
 	}
 
+	// console 模式下监听按键：切换到 raw 模式捕获单个字符，按 q 退出
+	quit := make(chan struct{})
+	if *consoleFlag {
+		oldState, err := term.MakeRaw(int(os.Stdin.Fd()))
+		if err == nil {
+			defer term.Restore(int(os.Stdin.Fd()), oldState)
+		}
+		go func() {
+			buf := make([]byte, 1)
+			for {
+				if _, err := os.Stdin.Read(buf); err != nil {
+					break
+				}
+				if buf[0] == 'q' || buf[0] == 'Q' {
+					close(quit)
+					return
+				}
+			}
+		}()
+	}
+
 	// 每秒触发一次采集
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-quit:
+			return
+		case <-ticker.C:
+		}
+
 		metrics, err := collectMetrics()
 		if err != nil {
 			log.Printf("Error collecting metrics: %v", err)

@@ -43,43 +43,45 @@ func repeat(ch rune, n int) string {
 
 // outputToConsole 以类 top 的方式将指标实时刷新到终端。
 // 每次调用都会清屏并从头重新渲染，模拟原地更新效果。
+// 使用 \r\n 作为行尾，兼容 raw 模式终端（raw 模式下 \n 只换行不回车）。
 func outputToConsole(metrics Metrics) {
 	// ANSI 转义序列：清屏并将光标移到左上角
 	fmt.Print("\033[2J\033[H")
 
-	fmt.Printf("System Monitor — %s\n", metrics.Timestamp.Format("2006-01-02 15:04:05"))
-	fmt.Println()
+	fmt.Printf("System Monitor — %s\r\n", metrics.Timestamp.Format("2006-01-02 15:04:05"))
+	fmt.Print("\r\n")
 
 	// 资源使用进度条（宽度 40 字符）+ 数值
-	fmt.Printf("CPU:    %s %5.1f%%\n", bar(metrics.CPU, 40), metrics.CPU)
-	fmt.Printf("Memory: %s %5.1f%%  (%d MB / %d MB)\n",
+	fmt.Printf("CPU:    %s %5.1f%%\r\n", bar(metrics.CPU, 40), metrics.CPU)
+	fmt.Printf("Memory: %s %5.1f%%  (%d MB / %d MB)\r\n",
 		bar(metrics.Memory.UsedPercent, 40),
 		metrics.Memory.UsedPercent,
 		metrics.Memory.Used/1024/1024,
 		metrics.Memory.Total/1024/1024)
-	fmt.Printf("Disk:   %s %5.1f%%  (%d GB free / %d GB total)\n",
+	fmt.Printf("Disk:   %s %5.1f%%  (%d GB free / %d GB total)\r\n",
 		bar(metrics.Disk.UsedPercent, 40),
 		metrics.Disk.UsedPercent,
 		metrics.Disk.Free/1024/1024/1024,
 		metrics.Disk.Total/1024/1024/1024)
-	fmt.Println()
+	fmt.Print("\r\n")
 
 	// 网络 I/O 累计值（自系统启动以来）
-	fmt.Printf("Network: ↑ %d MB sent   ↓ %d MB recv\n",
+	fmt.Printf("Network: ↑ %d MB sent   ↓ %d MB recv\r\n",
 		metrics.Network.BytesSent/1024/1024,
 		metrics.Network.BytesRecv/1024/1024)
-	fmt.Println()
+	fmt.Print("\r\n")
 
 	// 进程列表表头
-	fmt.Printf("  %-6s  %-32s  %8s  %8s\n", "PID", "NAME", "CPU%", "MEM%")
-	fmt.Println("  " + repeat('-', 60))
+	fmt.Printf("  %-6s  %-32s  %8s  %8s\r\n", "PID", "NAME", "CPU%", "MEM%")
+	fmt.Print("  " + repeat('-', 60) + "\r\n")
 	for i, p := range metrics.Processes {
 		if i >= 10 {
 			break
 		}
-		fmt.Printf("  %-6d  %-32s  %7.2f%%  %7.2f%%\n",
+		fmt.Printf("  %-6d  %-32s  %7.2f%%  %7.2f%%\r\n",
 			p.PID, truncate(p.Name, 32), p.CPUPercent, p.MemoryPercent)
 	}
+	fmt.Print("\r\n[q] quit\r\n")
 }
 
 // outputToFile 将指标以 JSON Lines 格式追加写入文件（每行一个 JSON 对象）。
