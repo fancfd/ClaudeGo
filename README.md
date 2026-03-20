@@ -55,7 +55,7 @@ graph TD
 
     OS -->|gopsutil/v3| CM
     GP --> CM
-    CM -->|Metrics{}| TICK
+    CM -->|"Metrics{}"| TICK
     FLAG --> TICK
     TICK --> ALERT
     ALERT -->|超阈值| STDERR
