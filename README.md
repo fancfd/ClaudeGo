@@ -2,33 +2,53 @@
 
 A system metrics monitoring tool that collects CPU, memory, disk, network, and process data every second and outputs to one or more destinations.
 
+> 中文文档：[README_zh.md](README_zh.md)
+
 ## Usage
 
 ```bash
-go run . --console                                     # 打印到终端
-go run . --file metrics.jsonl                          # 追加写入 JSON Lines 文件
-go run . --web                                         # 在 http://localhost:8080/metrics 提供 JSON 接口
-go run . --console --file out.jsonl --web --port 9090  # 多种模式同时启用
+make run                                               # console mode
+make run-file                                          # console + file output
+make run-web                                           # console + web server
+make run-web PORT=9090                                 # custom port
+
+# or run directly
+go run . --console
+go run . --file metrics.jsonl
+go run . --web --port 8080
+go run . --console --file out.jsonl --web --port 9090
 ```
 
-至少需要指定一种输出模式，否则程序退出并报错。
+At least one output flag is required. In console mode, press **q** to quit.
 
 ## Output Flags
 
-| Flag | 说明 |
-|------|------|
-| `--console` | 实时类 top 终端显示，每秒刷新（含 CPU/内存/磁盘进度条及进程列表） |
-| `--file <path>` | 将每次采集结果以单行 JSON 对象追加到指定文件（JSON Lines 格式） |
-| `--web` | 以 JSON 格式在 `GET /metrics` 暴露最新指标 |
-| `--port <port>` | Web 服务器监听端口（默认：`8080`） |
+| Flag | Description |
+|------|-------------|
+| `--console` | Real-time top-like display, refreshed every second |
+| `--file <path>` | Append one JSON object per line to the specified file |
+| `--web` | Serve latest metrics as JSON via HTTP |
+| `--port <port>` | Web server port (default: `8080`) |
 
-多种模式可同时启用，互不干扰。
+Multiple modes can be enabled simultaneously.
+
+## Makefile Targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Compile to `./monitor` |
+| `make run` | Build and run in console mode |
+| `make run-file` | Console + write `metrics.jsonl` |
+| `make run-web` | Console + web server (default port 8080) |
+| `make test` | Run all tests |
+| `make tidy` | Tidy go.mod / go.sum |
+| `make clean` | Remove binary and log files |
 
 ## Architecture
 
 ```mermaid
 graph TD
-    OS["操作系统内核<br/>CPU · 内存 · 磁盘 · 网络 · 进程"]
+    OS["OS Kernel<br/>CPU · Memory · Disk · Network · Processes"]
 
     subgraph metrics.go
         CM["collectMetrics()"]
@@ -39,26 +59,26 @@ graph TD
         FLAG["flag.Parse()<br/>--console / --file / --web / --port"]
         TICK["time.Ticker 1s"]
         ALERT["checkAlerts()"]
-        FANOUT["扇出分发"]
+        FANOUT["fan-out"]
     end
 
     subgraph output.go
-        CON["outputToConsole()<br/>进度条 + 进程表"]
+        CON["outputToConsole()<br/>progress bars + process table"]
         FILE["outputToFile()<br/>JSON Lines"]
         WEB["startWebServer()<br/>goroutine"]
     end
 
     TERM["Terminal"]
     JSONL["file.jsonl"]
-    BROWSER["Browser<br/>GET /  仪表盘<br/>GET /metrics  JSON"]
-    STDERR["stderr 告警日志"]
+    BROWSER["Browser<br/>GET /  dashboard<br/>GET /metrics  JSON"]
+    STDERR["stderr alerts"]
 
     OS -->|gopsutil/v3| CM
     GP --> CM
     CM -->|"Metrics{}"| TICK
     FLAG --> TICK
     TICK --> ALERT
-    ALERT -->|超阈值| STDERR
+    ALERT -->|threshold exceeded| STDERR
     ALERT --> FANOUT
     FANOUT -->|--console| CON
     FANOUT -->|--file| FILE
@@ -72,54 +92,50 @@ graph TD
 
 ```
 .
-├── main.go          # 程序入口：数据结构、主循环、告警检测
-├── metrics.go       # 系统指标采集（CPU、内存、磁盘、网络、进程）
-├── output.go        # 三种输出处理器（终端、文件、Web 服务器）
+├── main.go             # Entry point: data structs, main loop, alert detection
+├── metrics.go          # System metrics collection (CPU, memory, disk, network, processes)
+├── output.go           # Three output handlers (console, file, web server)
+├── Makefile            # Build and run targets
 └── web/
-    └── dashboard.html  # Web 仪表盘页面（编译时通过 //go:embed 打包）
+    └── dashboard.html  # Web dashboard (embedded at compile time via //go:embed)
 ```
 
-### main.go — 程序入口与数据模型
+### main.go — Entry Point & Data Model
 
-定义所有数据结构并驱动主循环：
+- **Data structs**: `Metrics`, `MemoryMetrics`, `DiskMetrics`, `NetworkMetrics`, `ProcessMetrics` (all JSON-serializable)
+- **CLI parsing**: `--console`, `--file`, `--web`, `--port` via standard `flag` package
+- **Main loop**: 1-second ticker, collects metrics and fans out to enabled outputs
+- **Alert detection**: `checkAlerts()` logs to stderr when thresholds are exceeded
+- **Quit**: press `q` in console mode to exit cleanly (raw terminal mode)
+- **Channel design**: buffered channel (cap=1) to web server; non-blocking `select/default` prevents blocking the main loop
 
-- **数据结构**：`Metrics`、`MemoryMetrics`、`DiskMetrics`、`NetworkMetrics`、`ProcessMetrics`，均支持 JSON 序列化
-- **命令行解析**：使用标准库 `flag` 解析 `--console`、`--file`、`--web`、`--port`
-- **主循环**：每秒触发一次采集，将结果分发给各输出模块
-- **告警检测**：`checkAlerts()` 在指标超阈值时向 stderr 输出告警日志
-- **通道设计**：通过容量为 1 的带缓冲通道向 Web 服务器推送指标，采用非阻塞 `select/default` 保证主循环不被阻塞
+### metrics.go — Metrics Collection
 
-### metrics.go — 系统指标采集
+Collects system metrics via [`gopsutil/v3`](https://github.com/shirou/gopsutil):
 
-通过 [`gopsutil/v3`](https://github.com/shirou/gopsutil) 采集各项系统指标：
+| Function | Description |
+|----------|-------------|
+| `collectMetrics()` | Collects all metrics and returns a `Metrics` snapshot |
+| `getTopProcesses(n)` | Returns top n processes sorted by CPU usage (descending) |
 
-| 函数 | 说明 |
-|------|------|
-| `collectMetrics()` | 一次性采集所有指标并返回 `Metrics` 快照 |
-| `getTopProcesses(n)` | 遍历所有进程，按 CPU 使用率降序返回前 n 个 |
+Collected metrics:
+- **CPU**: average usage across all cores (1-second sample interval)
+- **Memory**: total, used, usage percent (physical RAM)
+- **Disk**: root filesystem `/` — total, free, usage percent
+- **Network**: cumulative bytes/packets sent and received across all interfaces
+- **Processes**: top 10 by CPU (PID, name, CPU%, MEM%)
 
-采集项包括：
-- **CPU**：全核平均使用率，采样间隔 1 秒
-- **内存**：总量、已用量、使用率（物理 RAM）
-- **磁盘**：根文件系统 `/` 的总量、剩余空间、使用率
-- **网络**：所有网络接口的累计发送/接收字节数及数据包数
-- **进程**：CPU 占用最高的前 10 个进程（PID、名称、CPU%、内存%）
+### output.go — Output Handlers
 
-进程采集失败时降级为空列表，不影响其他指标的正常输出。
+| Function | Description |
+|----------|-------------|
+| `outputToConsole(metrics)` | Clears screen and redraws; simulates `top`-like in-place refresh |
+| `outputToFile(metrics, path)` | Appends JSON-serialized metrics to file (one record per line) |
+| `startWebServer(port, ch)` | Starts Gin HTTP server; `GET /` serves dashboard, `GET /metrics` returns JSON |
+| `bar(percent, width)` | Renders a text progress bar |
+| `truncate(s, n)` | Truncates a string to n runes with ellipsis |
 
-### output.go — 输出处理器
-
-包含三种独立的输出实现及辅助函数：
-
-| 函数 | 说明 |
-|------|------|
-| `outputToConsole(metrics)` | 清屏后重绘终端界面，模拟 `top` 的原地刷新效果 |
-| `outputToFile(metrics, path)` | 将指标序列化为 JSON 后追加到文件（每行一条记录） |
-| `startWebServer(port, ch)` | 启动 Gin HTTP 服务器，`GET /metrics` 返回最新指标 JSON |
-| `bar(percent, width)` | 生成文本进度条，用于终端显示 |
-| `repeat(ch, n)` | 生成重复字符串的辅助函数 |
-
-Web 服务器在独立 goroutine 中运行，通过通道接收主循环推送的最新指标，HTTP 请求始终读取最近一次采集结果。
+The web server runs in a separate goroutine and receives metrics via a channel. HTTP handlers always serve the most recently collected snapshot.
 
 ## Console Example
 
@@ -132,34 +148,37 @@ Disk:   [########################                ]  60.1%  (150 GB free / 512 GB
 
 Network: ↑ 1024 MB sent   ↓ 2048 MB recv
 
-  PID     NAME                  CPU%      MEM%
-  ------------------------------------------------
-  1234    firefox               5.20%     3.10%
+  PID     NAME                                CPU%      MEM%
+  ------------------------------------------------------------
+  1234    firefox                            5.20%     3.10%
   ...
-```
 
-终端界面每秒清屏重绘，效果类似 `top`。
+[q] quit
+```
 
 ## Alerts
 
-当指标超过以下阈值时，告警信息会输出到 stderr：
+Warnings are logged to stderr when thresholds are exceeded:
 
-| 指标 | 阈值 |
-|------|------|
-| CPU 使用率 | > 80% |
-| 内存使用率 | > 90% |
-| 磁盘使用率 | > 95% |
+| Metric | Threshold |
+|--------|-----------|
+| CPU usage | > 80% |
+| Memory usage | > 90% |
+| Disk usage | > 95% |
 
 ## Build
 
 ```bash
-go build        # 编译生成可执行文件
-go test ./...   # 运行测试
+make build    # compile
+make test     # run tests
+make tidy     # tidy dependencies
+make clean    # remove binary
 ```
 
 ## Requirements
 
 - Go 1.21+
-- 依赖库（通过 `go mod tidy` 安装）：
-  - [`github.com/shirou/gopsutil/v3`](https://github.com/shirou/gopsutil) — 跨平台系统指标采集
-  - [`github.com/gin-gonic/gin`](https://github.com/gin-gonic/gin) — HTTP 服务器
+- Dependencies (installed via `go mod tidy`):
+  - [`github.com/shirou/gopsutil/v3`](https://github.com/shirou/gopsutil) — cross-platform system metrics
+  - [`github.com/gin-gonic/gin`](https://github.com/gin-gonic/gin) — HTTP server
+  - [`golang.org/x/term`](https://pkg.go.dev/golang.org/x/term) — raw terminal mode for keypress detection
